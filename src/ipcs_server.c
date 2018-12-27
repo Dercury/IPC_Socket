@@ -1,4 +1,7 @@
+#include "ipcs.h"
+
 #include <errno.h>
+#include <pthread.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,12 +94,19 @@ int AcceptClientEpoll(int serverFd, int epollFd)
     return 0;
 }
 
-int HandleMessage(int clientFd)
+#define IPCS_SERVER_NAME_MAX_LEN     256
+
+typedef struct {
+    char name[IPCS_SERVER_NAME_MAX_LEN];
+    ServerResponseFunc responseProc;
+} IPCS_ServerThreadArg;
+
+int HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
 {
     return 0;
 }
 
-int HandleServerEpollEvents(int serverFd, int epollFd)
+int HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg *threadArg)
 {
     int events_num = 0;
     int i = 0;
@@ -110,7 +120,7 @@ int HandleServerEpollEvents(int serverFd, int epollFd)
                 AcceptClientEpoll(serverFd, epollFd);
             } else if ((events[i].events & EPOLLIN) || (events[i].events & EPOLLPRI) || (events[i].events & EPOLLOUT)) {
                 /* 有数据待接收或待发送 */
-                HandleMessage(events[i].data.fd);
+                HandleMessage(events[i].data.fd, threadArg);
             } else {
                 /* 错误处理 */
             }
@@ -120,26 +130,53 @@ int HandleServerEpollEvents(int serverFd, int epollFd)
     return 0;
 }
 
-int main(int argc, char **argv)
+void *IPCS_ServerRun(void *arg)
 {
-    struct sockaddr_un clientAddr;
-	socklen_t clientAddrLen;
+    IPCS_ServerThreadArg *threadArg = (IPCS_ServerThreadArg *)arg;
 	int serverFd = 0;
-    int clientFd = 0;
-	char buf[MAXLINE] = {0};
-    int msgLen = 0;
-    int i;
     int epollFd = 0;
 
     CreateServerSocket(g_ServerSocketPath, strlen(g_ServerSocketPath), &serverFd);
 
     CreateServerEpoll(serverFd, &epollFd);
 
-    HandleServerEpollEvents(serverFd, epollFd);
+    HandleServerEpollEvents(serverFd, epollFd, threadArg);
 
     close(serverFd);
     close(epollFd);
+    free(arg);
 
+    return;
+}
+
+int IPCS_CreateServer(const char *serverName, size_t serverNameLen, ServerResponseFunc serverResponseProc)
+{
+    pthread_t threadId;
+    pthread_attr_t threadAttr;
+    IPCS_ServerThreadArg *threadArg = NULL;
+
+    threadArg = (IPCS_ServerThreadArg *)malloc(sizeof(IPCS_ServerThreadArg));
+    if (threadArg == NULL) {
+        return -1;
+    }
+    (void)memset(threadArg, 0, sizeof(IPCS_ServerThreadArg));
+
+    pthread_attr_init(&threadAttr);
+    /* 将threadAttr内相关属性设置为PTHREAD_CREATE_DETACHED，线程会变成unjoinable状态，
+     * 则新线程不能用pthread_join来同步，且在退出时自行释放所占用的资源 */
+    pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
+
+    snprintf(threadArg->name, sizeof(threadArg->name), "%s", serverName);
+    threadArg->responseProc = serverResponseProc;
+    pthread_create(threadId, &threadAttr, IPCS_ServerRun, threadArg);
+
+    //pthread_attr_destroy(&threadAttr);
+
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
     return 0;
 }
 
