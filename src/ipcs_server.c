@@ -13,9 +13,6 @@
 #include <unistd.h>
 
 
-#define MAXLINE 80
-
-char *g_ServerSocketPath = "server.socket";
 const int MAX_CLIENT_NUM = 20;
 
 int CreateServerSocket(const char *serverName, size_t serverNameLen, int *serverFd)
@@ -94,6 +91,7 @@ int AcceptClientEpoll(int serverFd, int epollFd)
     return 0;
 }
 
+#define IPCS_MESSAGE_MAX_LEN    (32 * 1024)
 #define IPCS_SERVER_NAME_MAX_LEN     256
 
 typedef struct {
@@ -103,6 +101,23 @@ typedef struct {
 
 int HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
 {
+    int result = 0;
+    void *recvData = NULL;
+    size_t recvDataLen = IPCS_MESSAGE_MAX_LEN;
+    ssize_t msgLen = 0;
+
+    recvData = malloc(recvDataLen);
+    if (recvData == NULL) {
+        printf("malloc error");
+    }
+    (void)memset(recvData, 0, recvDataLen);
+
+    msgLen = read(clientFd, recvData, recvDataLen);
+
+    result = threadArg->responseProc(clientFd, cmdId, recvData, recvDataLen);
+
+    free(recvData);
+
     return 0;
 }
 
@@ -136,7 +151,7 @@ void *IPCS_ServerRun(void *arg)
 	int serverFd = 0;
     int epollFd = 0;
 
-    CreateServerSocket(g_ServerSocketPath, strlen(g_ServerSocketPath), &serverFd);
+    CreateServerSocket(threadArg->name, strlen(threadArg->name), &serverFd);
 
     CreateServerEpoll(serverFd, &epollFd);
 
@@ -170,12 +185,24 @@ int IPCS_CreateServer(const char *serverName, size_t serverNameLen, ServerRespon
     threadArg->responseProc = serverResponseProc;
     pthread_create(threadId, &threadAttr, IPCS_ServerRun, threadArg);
 
-    //pthread_attr_destroy(&threadAttr);
+    pthread_attr_destroy(&threadAttr);
 
     return 0;
 }
 
 int main(int argc, char **argv)
+{
+    return 0;
+}
+
+/* 销毁服务端 */
+int IPCS_DestroyServer(const char *serverName)
+{
+    return 0;
+}
+
+/* 服务端响应消息，服务端响应请求的回调函数中使用 */
+unsigned int IPCS_RespondMessage(int fd, unsigned int cmdId, void *dataAddr, unsigned int dataLength)
 {
     return 0;
 }
