@@ -23,13 +23,11 @@
 #include "ipcs_common.h"
 
 typedef struct {
-    char clientName[IPCS_CLIENT_NAME_MAX_LEN];
-    char serverName[IPCS_SERVER_NAME_MAX_LEN];
     int fd;
+    ClientCallback clientHook;
 } IPCS_AsynClientThreadArg;
 
 int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int *clientFd);
 void *IPCS_AsynClientRun(void *arg);
 
 #endif /* __IPCS_CLIENT_H__ */
-
