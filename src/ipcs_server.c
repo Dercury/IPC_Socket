@@ -31,28 +31,21 @@
 #include <unistd.h>
 
 
-int IPCS_CreateServer(const char *serverName, ServerResponseFunc serverResponseProc)
+int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 {
     pthread_t threadId;
-    pthread_attr_t threadAttr;
     IPCS_ServerThreadArg *threadArg = NULL;
 
     threadArg = (IPCS_ServerThreadArg *)malloc(sizeof(IPCS_ServerThreadArg));
     if (threadArg == NULL) {
         return -1;
     }
+
     (void)memset(threadArg, 0, sizeof(IPCS_ServerThreadArg));
-
-    /* 将threadAttr内相关属性设置为PTHREAD_CREATE_DETACHED，线程会变成unjoinable状态，
-     * 则新线程不能用pthread_join来同步，且在退出时自行释放所占用的资源 */
-    pthread_attr_init(&threadAttr);
-    pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
-
     snprintf(threadArg->name, sizeof(threadArg->name), "%s", serverName);
-    threadArg->responseProc = serverResponseProc;
-    pthread_create(&threadId, &threadAttr, IPCS_ServerRun, threadArg);
+    threadArg->serverHook = serverHook;
 
-    pthread_attr_destroy(&threadAttr);
+    IPCS_CreateThread(IPCS_ServerRun, threadArg, &threadId);
 
     return 0;
 }
@@ -141,7 +134,9 @@ int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg
             if (events[i].data.fd == serverFd) { 
                 /* 有新的连接 */
                 IPCS_AcceptClientEpoll(serverFd, epollFd);
-            } else if ((events[i].events & EPOLLIN) || (events[i].events & EPOLLPRI) || (events[i].events & EPOLLOUT)) {
+            } else if ((events[i].events & EPOLLIN) || 
+                (events[i].events & EPOLLPRI) || 
+                (events[i].events & EPOLLOUT)) {
                 /* 有数据待接收或待发送 */
                 IPCS_HandleMessage(events[i].data.fd, threadArg);
             } else {
@@ -180,6 +175,7 @@ int IPCS_HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
     size_t recvDataLen = IPCS_MESSAGE_MAX_LEN;
     ssize_t msgLen = 0;
     unsigned int cmdId = 0;
+    IPCS_Message msg;
 
     recvData = malloc(recvDataLen);
     if (recvData == NULL) {
@@ -189,7 +185,9 @@ int IPCS_HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
 
     msgLen = read(clientFd, recvData, recvDataLen);
 
-    result = threadArg->responseProc(clientFd, cmdId, recvData, recvDataLen);
+    result = IPCS_StreamToMsg(recvData, recvDataLen, &msg);
+
+    result = threadArg->serverHook(clientFd, &msg);
 
     free(recvData);
 
@@ -207,4 +205,3 @@ int IPCS_RespondMessage(int fd, unsigned int cmdId, void *dataAddr, unsigned int
 {
     return 0;
 }
-
