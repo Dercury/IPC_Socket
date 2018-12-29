@@ -27,11 +27,9 @@
 #define EPOLL_SIZE 20
 #define EPOLL_RUN_TIMEOUT   500
 
-#define IPCS_MESSAGE_MAX_LEN    (32 * 1024)
-
 typedef struct {
     char name[IPCS_SERVER_NAME_MAX_LEN];
-    ServerResponseFunc responseProc;
+    ServerCallback serverHook;
 } IPCS_ServerThreadArg;
 
 void *IPCS_ServerRun(void *arg);
@@ -47,4 +45,3 @@ int IPCS_AcceptClientEpoll(int serverFd, int epollFd);
 int IPCS_HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg);
 
 #endif /* __IPCS_SERVER_H__ */
-
