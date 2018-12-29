@@ -1,12 +1,12 @@
 /*
  * =====================================================================================
  *
- *       Filename:  ipcs_common.c
+ *       Filename:  ipcs_common.h
  *
- *    Description:  IPC socket
+ *    Description:  IPC socket common
  *
  *        Version:  1.0
- *        Created:  12/28/2018 10:36:29 PM
+ *        Created:  12/28/2018 10:38:56 PM
  *       Revision:  none
  *       Compiler:  gcc
  *
@@ -16,82 +16,32 @@
  * =====================================================================================
  */
 
-#include "ipcs_common.h"
+#ifndef __IPCS_COMMON_H__
+#define __IPCS_COMMON_H__
 
-#include <errno.h>
-#include <pthread.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/epoll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/un.h>
-#include <unistd.h>
+#include "ipcs.h"
 
-#define IPCS_LOG_MAX_LEN    1024
-#define IPCS_LOG_PRINT      printf
+#define IPCS_SERVER_NAME_MAX_LEN     256
+#define IPCS_CLIENT_NAME_MAX_LEN     256
 
-void IPCS_WriteLogImpl(const char *filename, unsigned int lineNum, const char *format, ...)
-{
-    char *buf = NULL;
-    size_t bufLen = IPCS_LOG_MAX_LEN;
-    int result = 0;
-    va_list ap;
+typedef struct {
+    unsigned int msgType;
+    unsigned int msgLen;
+} IPCS_MessageHeader;
 
-    buf = (char *)malloc(bufLen);
-    if (buf == NULL) {
-        perror("malloc log buf fail");
-        return;
-    }
-    (void)memset(buf, 0, bufLen);
+typedef struct {
+    IPCS_MessageHeader msgHeader;
+    void *msgValue;
+} IPCS_InnerMessage;
 
-    do {
-        va_start(ap, format);
-        result = vsnprintf(buf, bufLen, format, ap);
-        va_end(ap);
+void IPCS_WriteLogImpl(const char *filename, unsigned int lineNum, const char *format, ...);
 
-        if (result <= 0) {
-            perror("vsnprintf log fail");
-            break;
-        }
+#define IPCS_WriteLog(format, ...)      IPCS_WriteLogImpl(__FILE__, __LINE__, (format), ##__VA_ARGS__)
 
-        result = IPCS_LOG_PRINT("\r\n[%s:%u]%s", filename, lineNum, buf);
-        if (result <= 0) {
-            perror("print log fail");
-            break;
-        }
-    } while (0);
+int IPCS_CreateThread(void *(threadRunFunc)(void *), void *threadArg, pthread_t *threadId);
 
-    free(buf);
+int IPCS_MsgToStream(IPCS_Message *msg, void *streamBuf, unsigned int *bufLen);
 
-    return;
-}
+int IPCS_StreamToMsg(void *streamBuf, unsigned int bufLen, IPCS_Message *msg);
 
-int IPCS_CreateThread(void *(threadRunFunc)(void *), void *threadArg, pthread_t *threadId)
-{
-    pthread_attr_t threadAttr;
-
-    /* 将threadAttr内相关属性设置为PTHREAD_CREATE_DETACHED，线程会变成unjoinable状态，
-    * 则新线程不能用pthread_join来同步，且在退出时自行释放所占用的资源 */
-    pthread_attr_init(&threadAttr);
-    pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
-
-    pthread_create(threadId, &threadAttr, threadRunFunc, threadArg);
-
-    pthread_attr_destroy(&threadAttr);
-
-    return 0;
-}
-
-int IPCS_MsgToStream(IPCS_Message *msg, void *streamBuf, unsigned int *bufLen)
-{
-    return 0;
-}
-
-int IPCS_StreamToMsg(void *streamBuf, unsigned int bufLen, IPCS_Message *msg)
-{
-    return 0;
-}
+#endif /* __IPCS_COMMON_H__ */
