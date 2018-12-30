@@ -1,7 +1,9 @@
 #! /bin/bash
 
-gcc -I../include -I../src ../src/ipcs_server.c ../src/ipcs_common.c ./server_main.c -lpthread -o server.exe
+gcc -fPIC -shared -I../include -I../src ../src/ipcs_server.c ../src/ipcs_common.c ../src/ipcs_client.c -o libipcs.so
 
-gcc -I../include -I../src ../src/ipcs_client.c ../src/ipcs_common.c ./client_main.c -lpthread -o client.exe
+gcc -I../include ./server_main.c ./libipcs.so -lpthread -o server.exe
+
+gcc -I../include ./client_main.c ./libipcs.so -lpthread -o client.exe
 
 

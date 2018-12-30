@@ -20,6 +20,7 @@
 #define __IPCS_COMMON_H__
 
 #include "ipcs.h"
+#include <pthread.h>
 
 #define IPCS_SERVER_NAME_MAX_LEN     256
 #define IPCS_CLIENT_NAME_MAX_LEN     256
