@@ -40,8 +40,8 @@ int IPCS_CreateServerEpoll(int serverFd, int *epollFd);
 
 int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg *threadArg);
 
-int IPCS_AcceptClientEpoll(int serverFd, int epollFd);
+int IPCS_ServerAcceptClient(int serverFd, int epollFd);
 
-int IPCS_HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg);
+int IPCS_ServerHandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg);
 
 #endif /* __IPCS_SERVER_H__ */

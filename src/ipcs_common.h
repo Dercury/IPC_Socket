@@ -25,15 +25,11 @@
 #define IPCS_SERVER_NAME_MAX_LEN     256
 #define IPCS_CLIENT_NAME_MAX_LEN     256
 
-typedef struct {
-    unsigned int msgType;
-    unsigned int msgLen;
-} IPCS_MessageHeader;
-
-typedef struct {
-    IPCS_MessageHeader msgHeader;
-    void *msgValue;
-} IPCS_InnerMessage;
+typedef enum {
+    IPCS_SERVER = 0,
+    IPCS_SYNC_CLIENT,
+    IPCS_ASYN_CLIENT
+} IPCS_ItemType;
 
 void IPCS_WriteLogImpl(const char *filename, unsigned int lineNum, const char *format, ...);
 
@@ -45,4 +41,13 @@ int IPCS_MsgToStream(IPCS_Message *msg, void *streamBuf, unsigned int *bufLen);
 
 int IPCS_StreamToMsg(void *streamBuf, unsigned int bufLen, IPCS_Message *msg);
 
+int IPCS_SendMessage(int fd, IPCS_Message *msg);
+
+int IPCS_RecvMessage(int itemType, int clientFd, void *threadArg);
+
+int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int clientFd, void *threadArg);
+
+int IPCS_ItemRecvData(int itemType, int clientFd, void *threadArg, IPCS_Message *msg);
+
 #endif /* __IPCS_COMMON_H__ */
+

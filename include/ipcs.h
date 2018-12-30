@@ -19,21 +19,45 @@
 #ifndef __IPCS_H__
 #define __IPCS_H__
 
+/* */
 #define IPCS_MESSAGE_MAX_LEN    (32*1024)
-
-typedef enum {
-    IPCS_OK = 0,
-    IPCS_ERROR,
-    IPCS_MALLOC_FAIL,
-    IPCS_WRITE_FAIL,
-    IPCS_READ_FAIL,
-} IPCS_ReturnValue;
 
 typedef struct {
     unsigned int msgType;
     unsigned int msgLen;
     void *msgValue;
 } IPCS_Message;
+
+typedef enum {
+    IPCS_OK = 0,
+
+    IPCS_MALLOC_FAIL,
+
+    IPCS_SOCKET_FAIL,
+    IPCS_BIND_FAIL,
+    IPCS_LISTEN_FAIL,
+    IPCS_ACCEPT_FAIL,
+    IPCS_CONNECT_FAIL,
+
+    IPCS_EPOLL_CREATE_FAIL,
+    IPCS_EPOLL_CTL_FAIL,
+    IPCS_EPOLL_WAIT_FAIL,
+    IPCS_EPOLL_BAD_EVENT,
+
+    IPCS_READ_FAIL,
+    IPCS_WRITE_FAIL,
+
+    IPCS_SERVER_HOOK_FAIL,
+    IPCS_CLIENT_HOOK_FAIL,
+
+    IPCS_MSG_TOO_LONG,  /* in */
+    IPCS_BUF_TOO_SMALL, /* out */
+    IPCS_STREAM_BUF_BAD,
+
+    IPCS_UNREACHABLE,
+
+    IPCS_ERROR_BUTT
+} IPCS_ReturnValue;
 
 /* 服务端响应的回调函数 */
 typedef int (*ServerCallback)(int fd, IPCS_Message *msg);
@@ -48,7 +72,7 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook);
 int IPCS_DestroyServer(const char *serverName);
 
 /* 服务端响应消息，服务端响应请求的回调函数中使用 */
-int IPCS_RespondMessage(int fd, unsigned int cmdId, void *dataAddr, unsigned int dataLength);
+int IPCS_ServerSendMessage(int fd, IPCS_Message *msg);
 
 /* 创建同步客户端 */
 int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *fd);
@@ -60,10 +84,11 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
 int IPCS_DestroyClient(int fd);
 
 /* 同步调用 */
-int IPCS_SyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg);
+int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg);
 
 /* 异步调用 */
-int IPCS_AsynCall(int fd, IPCS_Message *sendMsg);
+int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg);
 
 
 #endif /* __IPCS_H__ */
+

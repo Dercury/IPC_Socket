@@ -38,7 +38,9 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 
     threadArg = (IPCS_ServerThreadArg *)malloc(sizeof(IPCS_ServerThreadArg));
     if (threadArg == NULL) {
-        return -1;
+        perror("malloc error");
+        IPCS_WriteLog("Create Server: %s: malloc fail.", serverName);
+        return IPCS_MALLOC_FAIL;
     }
 
     (void)memset(threadArg, 0, sizeof(IPCS_ServerThreadArg));
@@ -47,7 +49,7 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 
     IPCS_CreateThread(IPCS_ServerRun, threadArg, &threadId);
 
-    return 0;
+    return IPCS_OK;
 }
 
 void *IPCS_ServerRun(void *arg)
@@ -64,9 +66,9 @@ void *IPCS_ServerRun(void *arg)
 
     close(serverFd);
     close(epollFd);
-    free(arg);
+    free(threadArg);
 
-    return;
+    return NULL;
 }
 
 int IPCS_CreateServerSocket(const char *serverName, int *serverFd)
@@ -78,10 +80,11 @@ int IPCS_CreateServerSocket(const char *serverName, int *serverFd)
     listenFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (listenFd < 0) {
         perror("socket error");
-        exit(1);
+        IPCS_WriteLog("Create server: %s socket fail: %d, errno: %d", serverName, listenFd, errno);
+        return IPCS_SOCKET_FAIL;
     }
 
-    memset(&serverAddr, 0, sizeof(serverAddr));
+    (void)memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sun_family = AF_UNIX;
     strcpy(serverAddr.sun_path, serverName);
 
@@ -90,36 +93,49 @@ int IPCS_CreateServerSocket(const char *serverName, int *serverFd)
     result = bind(listenFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
     if (result < 0) {
         perror("bind error");
-        exit(1);
+        IPCS_WriteLog("Bind server: %s socket: %d fail: %d, errno: %d", serverName, listenFd, result, errno);
+        return IPCS_BIND_FAIL;
     }
-    printf("UNIX domain socket bound\n");
 
     result = listen(listenFd, MAX_CLIENT_NUM);
     if (result < 0) {
         perror("listen error");
-        exit(1);
+        IPCS_WriteLog("Listen server: %s socket %d fail: %d, errno: %d", serverName, listenFd, result, errno);
+        return IPCS_BIND_FAIL;
     }
-    printf("Accepting connections ... \n");
 
     *serverFd = listenFd;
+    IPCS_WriteLog("IPC socket server: %s socket: %d created.", serverName, *serverFd);
 
-    return 0;
+    return IPCS_OK;
 }
 
 int IPCS_CreateServerEpoll(int serverFd, int *epollFd)
 {
     struct epoll_event epollEvent;
     int tempFd = 0;
+    int result = 0;
 
     tempFd = epoll_create(EPOLL_SIZE);
+    if (tempFd < 0) {
+        perror("epoll create error");
+        IPCS_WriteLog("Create server: %d epoll fail: %d, errno: %d", serverFd, tempFd, errno);
+        return IPCS_EPOLL_CREATE_FAIL;
+    }
 
     epollEvent.events = EPOLLIN | EPOLLET;
     epollEvent.data.fd = serverFd;
-    epoll_ctl(tempFd, EPOLL_CTL_ADD, serverFd, &epollEvent);
+    result = epoll_ctl(tempFd, EPOLL_CTL_ADD, serverFd, &epollEvent);
+    if (result < 0) {
+        perror("epoll ctl error");
+        IPCS_WriteLog("Ctl server: %d epoll fail: %d, errno: %d", serverFd, result, errno);
+        return IPCS_EPOLL_CTL_FAIL;
+    }
 
     *epollFd = tempFd;
+    IPCS_WriteLog("IPC socket server: %d epoll: %d created.", serverFd, *epollFd);
 
-    return 0;
+    return IPCS_OK;
 }
 
 int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg *threadArg)
@@ -127,81 +143,84 @@ int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg
     int events_num = 0;
     int i = 0;
     struct epoll_event events[EPOLL_SIZE];
+    int result = IPCS_OK;
 
     for (; ; ) {
         events_num = epoll_wait(epollFd, events, EPOLL_SIZE, EPOLL_RUN_TIMEOUT);
+        if (events_num < 0) {
+            perror("epoll wait error");
+            IPCS_WriteLog("Handle server: %d epoll: %d wait fail: %d, errno: %d", serverFd, epollFd, events_num, errno);
+            return IPCS_EPOLL_WAIT_FAIL;
+        }
+
         for (i = 0; i < events_num; i++) {
             if (events[i].data.fd == serverFd) { 
                 /* 有新的连接 */
-                IPCS_AcceptClientEpoll(serverFd, epollFd);
+                result = IPCS_ServerAcceptClient(serverFd, epollFd);
             } else if ((events[i].events & EPOLLIN) || 
                 (events[i].events & EPOLLPRI) || 
                 (events[i].events & EPOLLOUT)) {
                 /* 有数据待接收或待发送 */
-                IPCS_HandleMessage(events[i].data.fd, threadArg);
+                result = IPCS_ServerHandleMessage(events[i].data.fd, threadArg);
             } else {
                 /* 错误处理 */
+                perror("epoll wait bad event");
+                IPCS_WriteLog("Handle server: %d epoll: %d got bad event: %p, errno: %d", serverFd, epollFd, events[i].events, errno);
+                result = IPCS_EPOLL_BAD_EVENT;
+            }
+
+            if (result != IPCS_OK) {
+                return result;
             }
         }
     }
 
-    return 0;
+    return IPCS_OK;
 }
 
-int IPCS_AcceptClientEpoll(int serverFd, int epollFd)
+int IPCS_ServerAcceptClient(int serverFd, int epollFd)
 {
     struct sockaddr_un clientAddr;
 	socklen_t clientAddrLen;
     int acceptFd = 0;
     struct epoll_event epollEvent;
+    int result = 0;
 
     clientAddrLen = sizeof(clientAddr);
     acceptFd = accept(serverFd, (struct sockaddr *)&clientAddr, &clientAddrLen);
     if (acceptFd < 0) {
         perror("accept error");
+        IPCS_WriteLog("Server: %d epoll: %d accept client fail: %d, errno: %d", serverFd, epollFd, acceptFd, errno);
+        return IPCS_ACCEPT_FAIL;
     }
 
     epollEvent.events = EPOLLIN | EPOLLET;
     epollEvent.data.fd = acceptFd;
-    epoll_ctl(epollFd, EPOLL_CTL_ADD, serverFd, &epollEvent);
+    result = epoll_ctl(epollFd, EPOLL_CTL_ADD, serverFd, &epollEvent);
+    if (result < 0) {
+        perror("epoll ctl error");
+        IPCS_WriteLog("Ctl server: %d epoll: %d fail: %d, errno: %d", serverFd, epollFd, result, errno);
+        return IPCS_EPOLL_CTL_FAIL;
+    }
 
-    return 0;
+    return IPCS_OK;
 }
 
-int IPCS_HandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
+int IPCS_ServerHandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
 {
-    int result = 0;
-    void *recvData = NULL;
-    size_t recvDataLen = IPCS_MESSAGE_MAX_LEN;
-    ssize_t msgLen = 0;
-    unsigned int cmdId = 0;
-    IPCS_Message msg;
-
-    recvData = malloc(recvDataLen);
-    if (recvData == NULL) {
-        printf("malloc error");
-    }
-    (void)memset(recvData, 0, recvDataLen);
-
-    msgLen = read(clientFd, recvData, recvDataLen);
-
-    result = IPCS_StreamToMsg(recvData, recvDataLen, &msg);
-
-    result = threadArg->serverHook(clientFd, &msg);
-
-    free(recvData);
-
-    return 0;
+    return IPCS_RecvMessage(IPCS_SERVER, clientFd, threadArg);
 }
 
 /* 销毁服务端 */
 int IPCS_DestroyServer(const char *serverName)
 {
-    return 0;
+    return IPCS_OK;
 }
 
 /* 服务端响应消息，服务端响应请求的回调函数中使用 */
-int IPCS_RespondMessage(int fd, unsigned int cmdId, void *dataAddr, unsigned int dataLength)
+int IPCS_ServerSendMessage(int fd, IPCS_Message *msg)
 {
-    return 0;
+    return IPCS_SendMessage(fd, msg);
 }
+
+

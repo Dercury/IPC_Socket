@@ -34,11 +34,11 @@
 /* 创建同步客户端 */
 int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *fd)
 {
-    int result = 0;
+    int result = IPCS_OK;
     
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
 
-    return 0;
+    return result;
 }
 
 int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int *clientFd)
@@ -51,7 +51,8 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
     connectFd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (connectFd < 0) {
         perror("client socket error");
-        exit(1);
+        IPCS_WriteLog("Create client: %s server: %s socket fail: %d, errno: %d", clientName, serverName, connectFd, errno);
+        return IPCS_SOCKET_FAIL;
     }
 
     memset(&clientAddr, 0, sizeof(clientAddr));
@@ -61,7 +62,8 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
     result = bind(connectFd, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
     if (result < 0) {
         perror("client bind error");
-        exit(1);
+        IPCS_WriteLog("Bind client: %s server: %s socket: %d fail: %d, errno: %d", clientName, serverName, connectFd, result, errno);
+        return IPCS_BIND_FAIL;
     }
 
     memset(&serverAddr, 0, sizeof(serverAddr));
@@ -72,56 +74,50 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
     result = connect(connectFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
     if (result < 0) {
         perror("client connect error");
-        exit(1);
+        IPCS_WriteLog("Connect client: %s server: %s socket: %d fail: %d, errno: %d", clientName, serverName, connectFd, result, errno);
+        return IPCS_CONNECT_FAIL;
     }
 
     *clientFd = connectFd;
+    IPCS_WriteLog("IPC socket client: %s server: %s socket: %d created.", clientName, serverName, *clientFd);
 
     return 0;
 }
 
 /* 同步调用 */
-int IPCS_SyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
+int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
 {
     int result = 0;
     void *streamBuf = NULL;
     unsigned int bufLen = IPCS_MESSAGE_MAX_LEN;
-    ssize_t writeLen = 0;
     ssize_t readLen = 0;
+
+    result = IPCS_SendMessage(fd, sendMsg);
+    if (result != IPCS_OK) {
+        return result;
+    }
 
     streamBuf = malloc(bufLen);
     if (streamBuf == NULL) {
-        IPCS_WriteLog("Sync call: malloc fail.");
+        perror("malloc error");
+        IPCS_WriteLog("Client: %d sync call: malloc fail.", fd);
         return IPCS_MALLOC_FAIL;
     }
     (void)memset(streamBuf, 0, bufLen);
 
     do {
-        result = IPCS_MsgToStream(sendMsg, streamBuf, &bufLen);
-        if (result != IPCS_OK) {
-            IPCS_WriteLog("Sync call: msg to stream fail: %d", result);
-            break;
-        }
-
-        writeLen = write(fd, streamBuf, bufLen);
-        if (writeLen <= 0) {
-            IPCS_WriteLog("Sync call: write fd: %d fail: %d, errno: %d", fd, writeLen, errno);
-            result = IPCS_WRITE_FAIL;
-            break;
-        }
-
-        bufLen = IPCS_MESSAGE_MAX_LEN;
         (void)memset(streamBuf, 0, bufLen);
         readLen = read(fd, streamBuf, bufLen);
         if (readLen <= 0) {
-            IPCS_WriteLog("Sync call: read fd: %d fail: %d, errno: %d", fd, readLen, errno);
+            perror("read error");
+            IPCS_WriteLog("Client: %d sync call: read fail: %d, errno: %d", fd, readLen, errno);
             result = IPCS_READ_FAIL;
             break;
         }
 
         result = IPCS_StreamToMsg(streamBuf, readLen, recvMsg);
         if (result != IPCS_OK) {
-            IPCS_WriteLog("Sync call: stream to msg fail: %d", result);
+            IPCS_WriteLog("Client: %d sync call: stream to msg fail: %d", fd, result);
             break;
         }
     } while (0);
@@ -139,71 +135,57 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
     int result = 0;
     
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
+    if (result != IPCS_OK) {
+        return result;
+    }
 
     threadArg = (IPCS_AsynClientThreadArg *)malloc(sizeof(IPCS_AsynClientThreadArg));
     if (threadArg == NULL) {
-        return -1;
+        IPCS_WriteLog("Create asyn client: malloc fail.");
+        return IPCS_MALLOC_FAIL;
     }
     (void)memset(threadArg, 0, sizeof(IPCS_AsynClientThreadArg));
 
     threadArg->fd = *fd;
     threadArg->clientHook = clientHook;
-    IPCS_CreateThread(IPCS_AsynClientRun, threadArg, &threadId);
+    result = IPCS_CreateThread(IPCS_AsynClientRun, threadArg, &threadId);
 
-    return 0;
+    return result;
 }
 
 void *IPCS_AsynClientRun(void *arg)
 {
     IPCS_AsynClientThreadArg *threadArg = (IPCS_AsynClientThreadArg *)arg;
-	int serverFd = 0;
-    unsigned int cmdId = 0;
-    void *recvData = NULL;
-    unsigned int recvDataLen = IPCS_MESSAGE_MAX_LEN;
-    ssize_t msgLen = 0;
     int result = 0;
-    IPCS_Message msg;
-
-    recvData = malloc(recvDataLen);
-    if (recvData == NULL) {
-        IPCS_WriteLog("Asyn client run: malloc fail.");
-        return NULL;
-    }
 
     for (; ; ) {
-        (void)memset(recvData, 0, recvDataLen);
-        msgLen = read(threadArg->fd, recvData, recvDataLen);
-        if (msgLen < 0) {
-            if (errno != EAGAIN) {
-                IPCS_WriteLog("Asyn client run: read fail: %d", errno);
-                break;
-            }
-        } else if (msgLen == 0) {
-            continue;
-        }
-
-        result = IPCS_StreamToMsg(recvData, recvDataLen, &msg);
-
-        result = threadArg->clientHook(&msg);
+        result = IPCS_RecvMessage(IPCS_ASYN_CLIENT, threadArg->fd, threadArg);
         if (result != IPCS_OK) {
-            IPCS_WriteLog("Asyn client run: clientHook fail: %d", result);
+            break;
         }
     }
 
-    free(recvData);
-    free(arg);
+    free(threadArg);
 
-    return;
+    return NULL;
 }
 
 /* 异步调用 */
-int IPCS_AsynCall(int fd, IPCS_Message *sendMsg)
+int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg)
 {
-    return 0;
+    return IPCS_SendMessage(fd, sendMsg);
 }
 
 /* 销毁客户端 */
 int IPCS_DestroyClient(int fd)
 {
-    return 0;
+    int result = 0;
+    result = close(fd);
+    if (result != 0) {
+        perror("close error");
+        IPCS_WriteLog("Destroy client: %d close fail, errno: %d", fd, errno);
+    }
+
+    return result;
 }
+
