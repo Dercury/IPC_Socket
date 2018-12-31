@@ -28,6 +28,7 @@ typedef struct {
 } IPCS_AsynClientThreadArg;
 
 int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int *clientFd);
+
 void *IPCS_AsynClientRun(void *arg);
 
 #endif /* __IPCS_CLIENT_H__ */

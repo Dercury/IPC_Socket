@@ -35,6 +35,7 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 {
     pthread_t threadId;
     IPCS_ServerThreadArg *threadArg = NULL;
+    int result = 0;
 
     threadArg = (IPCS_ServerThreadArg *)malloc(sizeof(IPCS_ServerThreadArg));
     if (threadArg == NULL) {
@@ -47,7 +48,12 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
     snprintf(threadArg->name, sizeof(threadArg->name), "%s", serverName);
     threadArg->serverHook = serverHook;
 
-    IPCS_CreateThread(IPCS_ServerRun, threadArg, &threadId);
+    result = IPCS_CreateThread(IPCS_ServerRun, threadArg, &threadId);
+    if (result != IPCS_OK) {
+        free(threadArg);
+        IPCS_WriteLog("Create Server: %s: create thread fail: %d.", serverName, result);
+        return result;
+    }
 
     return IPCS_OK;
 }
@@ -57,15 +63,35 @@ void *IPCS_ServerRun(void *arg)
     IPCS_ServerThreadArg *threadArg = (IPCS_ServerThreadArg *)arg;
 	int serverFd = 0;
     int epollFd = 0;
+    int result = 0;
 
-    IPCS_CreateServerSocket(threadArg->name, &serverFd);
+    do {
+        result = IPCS_CreateServerSocket(threadArg->name, &serverFd);
+        if (result != IPCS_OK) {
+            IPCS_WriteLog("Create server: %s socket fail: %d", threadArg->name, result);
+            break;
+        }
+    
+        result = IPCS_CreateServerEpoll(serverFd, &epollFd);
+        if (result != IPCS_OK) {
+            close(serverFd);
+            IPCS_WriteLog("Create server: %s fd: %d epoll fail: %d", threadArg->name, serverFd, result);
+            break;
+        }
+    
+        result = IPCS_HandleServerEpollEvents(serverFd, epollFd, threadArg);
+        if (result != IPCS_OK) {
+            close(serverFd);
+            close(epollFd);
+            IPCS_WriteLog("Handle server: %s fd: %d epoll fd %d events fail: %d",
+                    threadArg->name, serverFd, epollFd, result);
+            break;
+        }
+    
+        close(serverFd);
+        close(epollFd);
+    } while (0);
 
-    IPCS_CreateServerEpoll(serverFd, &epollFd);
-
-    IPCS_HandleServerEpollEvents(serverFd, epollFd, threadArg);
-
-    close(serverFd);
-    close(epollFd);
     free(threadArg);
 
     return NULL;
@@ -86,12 +112,13 @@ int IPCS_CreateServerSocket(const char *serverName, int *serverFd)
 
     (void)memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sun_family = AF_UNIX;
-    strcpy(serverAddr.sun_path, serverName);
+    snprintf(serverAddr.sun_path, sizeof(serverAddr.sun_path), "%s", serverName);
 
     /* 如果调用bind时文件已存在，则bind返回错误，所以先删除文件 */
     unlink(serverName);
     result = bind(listenFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
     if (result < 0) {
+        close(listenFd);
         perror("bind error");
         IPCS_WriteLog("Bind server: %s socket: %d fail: %d, errno: %d", serverName, listenFd, result, errno);
         return IPCS_BIND_FAIL;
@@ -99,6 +126,7 @@ int IPCS_CreateServerSocket(const char *serverName, int *serverFd)
 
     result = listen(listenFd, MAX_CLIENT_NUM);
     if (result < 0) {
+        close(listenFd);
         perror("listen error");
         IPCS_WriteLog("Listen server: %s socket %d fail: %d, errno: %d", serverName, listenFd, result, errno);
         return IPCS_BIND_FAIL;
@@ -127,6 +155,7 @@ int IPCS_CreateServerEpoll(int serverFd, int *epollFd)
     epollEvent.data.fd = serverFd;
     result = epoll_ctl(tempFd, EPOLL_CTL_ADD, serverFd, &epollEvent);
     if (result < 0) {
+        close(tempFd);
         perror("epoll ctl error");
         IPCS_WriteLog("Ctl server: %d epoll fail: %d, errno: %d", serverFd, result, errno);
         return IPCS_EPOLL_CTL_FAIL;
@@ -149,7 +178,8 @@ int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg
         events_num = epoll_wait(epollFd, events, EPOLL_SIZE, EPOLL_RUN_TIMEOUT);
         if (events_num < 0) {
             perror("epoll wait error");
-            IPCS_WriteLog("Handle server: %d epoll: %d wait fail: %d, errno: %d", serverFd, epollFd, events_num, errno);
+            IPCS_WriteLog("Handle server: %d epoll: %d wait fail: %d, errno: %d",
+                    serverFd, epollFd, events_num, errno);
             return IPCS_EPOLL_WAIT_FAIL;
         }
 
@@ -165,11 +195,12 @@ int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg
             } else {
                 /* 错误处理 */
                 perror("epoll wait bad event");
-                IPCS_WriteLog("Handle server: %d epoll: %d got bad event: %p, errno: %d", serverFd, epollFd, events[i].events, errno);
                 result = IPCS_EPOLL_BAD_EVENT;
             }
 
             if (result != IPCS_OK) {
+                IPCS_WriteLog("Handle server: %d epoll: %d wait: %d bad events: %p, errno: %d",
+                        serverFd, epollFd, events[i].data.fd, events[i].events, errno);
                 return result;
             }
         }
@@ -208,7 +239,7 @@ int IPCS_ServerAcceptClient(int serverFd, int epollFd)
 
 int IPCS_ServerHandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
 {
-    return IPCS_RecvMessage(IPCS_SERVER, clientFd, threadArg);
+    return IPCS_RecvMultiMsg(IPCS_SERVER, clientFd, threadArg);
 }
 
 /* 销毁服务端 */

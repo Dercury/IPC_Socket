@@ -37,6 +37,10 @@ int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *f
     int result = IPCS_OK;
     
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Create sync client: %s, server: %s: create socket fail: %d.", clientName, serverName, result);
+        return result;
+    }
 
     return result;
 }
@@ -61,6 +65,7 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
     unlink(clientAddr.sun_path);
     result = bind(connectFd, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
     if (result < 0) {
+        close(connectFd);
         perror("client bind error");
         IPCS_WriteLog("Bind client: %s server: %s socket: %d fail: %d, errno: %d", clientName, serverName, connectFd, result, errno);
         return IPCS_BIND_FAIL;
@@ -73,6 +78,7 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
 
     result = connect(connectFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
     if (result < 0) {
+        close(connectFd);
         perror("client connect error");
         IPCS_WriteLog("Connect client: %s server: %s socket: %d fail: %d, errno: %d", clientName, serverName, connectFd, result, errno);
         return IPCS_CONNECT_FAIL;
@@ -88,41 +94,18 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
 int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
 {
     int result = 0;
-    void *streamBuf = NULL;
-    unsigned int bufLen = IPCS_MESSAGE_MAX_LEN;
-    ssize_t readLen = 0;
 
     result = IPCS_SendMessage(fd, sendMsg);
     if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d sync call: send msg fail: %d", fd, result);
         return result;
     }
 
-    streamBuf = malloc(bufLen);
-    if (streamBuf == NULL) {
-        perror("malloc error");
-        IPCS_WriteLog("Client: %d sync call: malloc fail.", fd);
-        return IPCS_MALLOC_FAIL;
+    result = IPCS_RecvSingleMsg(fd, recvMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d sync call: resv single msg fail: %d", fd, result);
+        return result;
     }
-    (void)memset(streamBuf, 0, bufLen);
-
-    do {
-        (void)memset(streamBuf, 0, bufLen);
-        readLen = read(fd, streamBuf, bufLen);
-        if (readLen <= 0) {
-            perror("read error");
-            IPCS_WriteLog("Client: %d sync call: read fail: %d, errno: %d", fd, readLen, errno);
-            result = IPCS_READ_FAIL;
-            break;
-        }
-
-        result = IPCS_StreamToMsg(streamBuf, readLen, recvMsg);
-        if (result != IPCS_OK) {
-            IPCS_WriteLog("Client: %d sync call: stream to msg fail: %d", fd, result);
-            break;
-        }
-    } while (0);
-
-    free(streamBuf);
 
     return result;
 }
@@ -136,12 +119,14 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
     
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
     if (result != IPCS_OK) {
+        IPCS_WriteLog("Create asyn client: %s, server: %s: create socket fail: %d.", clientName, serverName, result);
         return result;
     }
 
     threadArg = (IPCS_AsynClientThreadArg *)malloc(sizeof(IPCS_AsynClientThreadArg));
     if (threadArg == NULL) {
-        IPCS_WriteLog("Create asyn client: malloc fail.");
+        close(*fd);
+        IPCS_WriteLog("Create asyn client: %s, server: %s, socket: %d: malloc fail.", clientName, serverName, *fd);
         return IPCS_MALLOC_FAIL;
     }
     (void)memset(threadArg, 0, sizeof(IPCS_AsynClientThreadArg));
@@ -149,6 +134,12 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
     threadArg->fd = *fd;
     threadArg->clientHook = clientHook;
     result = IPCS_CreateThread(IPCS_AsynClientRun, threadArg, &threadId);
+    if (result != IPCS_OK) {
+        close(*fd);
+        free(threadArg);
+        IPCS_WriteLog("Create asyn client: %s, server: %s, socket: %d: create thread fail: %d.", clientName, serverName, *fd, result);
+        return result;
+    }
 
     return result;
 }
@@ -159,7 +150,7 @@ void *IPCS_AsynClientRun(void *arg)
     int result = 0;
 
     for (; ; ) {
-        result = IPCS_RecvMessage(IPCS_ASYN_CLIENT, threadArg->fd, threadArg);
+        result = IPCS_RecvMultiMsg(IPCS_ASYN_CLIENT, threadArg->fd, threadArg);
         if (result != IPCS_OK) {
             break;
         }

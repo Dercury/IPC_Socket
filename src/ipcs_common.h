@@ -43,11 +43,13 @@ int IPCS_StreamToMsg(void *streamBuf, unsigned int bufLen, IPCS_Message *msg);
 
 int IPCS_SendMessage(int fd, IPCS_Message *msg);
 
-int IPCS_RecvMessage(int itemType, int clientFd, void *threadArg);
+int IPCS_RecvSingleMsg(int fd, IPCS_Message *recvMsg);
 
-int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int clientFd, void *threadArg);
+int IPCS_RecvMultiMsg(int itemType, int fd, void *threadArg);
 
-int IPCS_ItemRecvData(int itemType, int clientFd, void *threadArg, IPCS_Message *msg);
+int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int fd, void *threadArg);
+
+int IPCS_ItemHandleMsg(int itemType, int fd, void *threadArg, IPCS_Message *msg);
 
 #endif /* __IPCS_COMMON_H__ */
 

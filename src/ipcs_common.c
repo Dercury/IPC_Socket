@@ -33,13 +33,13 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#define IPCS_LOG_MAX_LEN    1024
-#define IPCS_LOG_PRINT      printf
+#define IPCS_LOG_LINE_MAX_LEN    1024
+#define IPCS_PRINT_LOG_LINE      printf
 
 void IPCS_WriteLogImpl(const char *filename, unsigned int lineNum, const char *format, ...)
 {
     char *buf = NULL;
-    size_t bufLen = IPCS_LOG_MAX_LEN;
+    size_t bufLen = IPCS_LOG_LINE_MAX_LEN;
     int result = 0;
     va_list ap;
 
@@ -60,7 +60,7 @@ void IPCS_WriteLogImpl(const char *filename, unsigned int lineNum, const char *f
             break;
         }
 
-        result = IPCS_LOG_PRINT("\r\n[%s:%u]%s", filename, lineNum, buf);
+        result = IPCS_PRINT_LOG_LINE("\r\n[%s:%u]%s", filename, lineNum, buf);
         if (result <= 0) {
             perror("print log fail");
             break;
@@ -75,17 +75,42 @@ void IPCS_WriteLogImpl(const char *filename, unsigned int lineNum, const char *f
 int IPCS_CreateThread(void *(threadRunFunc)(void *), void *threadArg, pthread_t *threadId)
 {
     pthread_attr_t threadAttr;
+    int result = 0;
+
+    result = pthread_attr_init(&threadAttr);
+    if (result != 0) {
+        perror("pthread attr init error");
+        IPCS_WriteLog("Create thread: pthread attr init fail: %d", result);
+        return IPCS_PTHREAD_ATTR_SET_FAIL;
+    }
 
     /* 将threadAttr内相关属性设置为PTHREAD_CREATE_DETACHED，线程会变成unjoinable状态，
     * 则新线程不能用pthread_join来同步，且在退出时自行释放所占用的资源 */
-    pthread_attr_init(&threadAttr);
-    pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
+    result = pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
+    if (result != 0) {
+        (void)pthread_attr_destroy(&threadAttr);
+        perror("pthread attr set detach state error");
+        IPCS_WriteLog("Create thread: pthread attr set detach state fail: %d", result);
+        return IPCS_PTHREAD_ATTR_SET_FAIL;
+    }
 
-    pthread_create(threadId, &threadAttr, threadRunFunc, threadArg);
+    result = pthread_create(threadId, &threadAttr, threadRunFunc, threadArg);
+    if (result != 0) {
+        (void)pthread_attr_destroy(&threadAttr);
+        perror("pthread create error");
+        IPCS_WriteLog("Create thread: pthread create fail: %d", result);
+        return IPCS_PTHREAD_CREATE_FAIL;
+    }
 
-    pthread_attr_destroy(&threadAttr);
+    result = pthread_attr_destroy(&threadAttr);
+    if (result != 0) {
+        (void)pthread_cancel(*threadId);
+        perror("pthread attr destroy error");
+        IPCS_WriteLog("Create thread: pthread attr destroy fail: %d", result);
+        return IPCS_PTHREAD_ATTR_SET_FAIL;
+    }
 
-    return 0;
+    return IPCS_OK;
 }
 
 int IPCS_MsgToStream(IPCS_Message *msg, void *streamBuf, unsigned int *bufLen)
@@ -168,7 +193,44 @@ int IPCS_SendMessage(int fd, IPCS_Message *msg)
     return result;
 }
 
-int IPCS_RecvMessage(int itemType, int clientFd, void *threadArg)
+int IPCS_RecvSingleMsg(int fd, IPCS_Message *recvMsg)
+{
+    int result = 0;
+    void *streamBuf = NULL;
+    unsigned int bufLen = IPCS_MESSAGE_MAX_LEN;
+    ssize_t readLen = 0;
+
+    streamBuf = malloc(bufLen);
+    if (streamBuf == NULL) {
+        perror("malloc error");
+        IPCS_WriteLog("Fd: %d recv single msg: malloc fail.", fd);
+        return IPCS_MALLOC_FAIL;
+    }
+    (void)memset(streamBuf, 0, bufLen);
+
+    do {
+        (void)memset(streamBuf, 0, bufLen);
+        readLen = read(fd, streamBuf, bufLen);
+        if (readLen <= 0) {
+            perror("read error");
+            IPCS_WriteLog("Fd: %d recv single msg: read fail: %d, errno: %d", fd, readLen, errno);
+            result = IPCS_READ_FAIL;
+            break;
+        }
+
+        result = IPCS_StreamToMsg(streamBuf, readLen, recvMsg);
+        if (result != IPCS_OK) {
+            IPCS_WriteLog("Fd: %d recv single msg: stream to msg fail: %d", fd, result);
+            break;
+        }
+    } while (0);
+
+    free(streamBuf);
+
+    return result;
+}
+
+int IPCS_RecvMultiMsg(int itemType, int fd, void *threadArg)
 {
     void *recvBuf = NULL;
     unsigned int recvBufLen = IPCS_MESSAGE_MAX_LEN;
@@ -178,25 +240,25 @@ int IPCS_RecvMessage(int itemType, int clientFd, void *threadArg)
     recvBuf = malloc(recvBufLen);
     if (recvBuf == NULL) {
         perror("mallco error");
-        IPCS_WriteLog("Client %d recv message: malloc fail.", clientFd);
+        IPCS_WriteLog("Fd: %d recv multi msg: malloc fail.", fd);
         return IPCS_MALLOC_FAIL;
     }
 
     do {
         (void)memset(recvBuf, 0, recvBufLen);
-        recvLen = read(clientFd, recvBuf, recvBufLen);
+        recvLen = read(fd, recvBuf, recvBufLen);
         if (recvLen < 0) {
             if (errno != EAGAIN) {
-                IPCS_WriteLog("Client %d recv message: read fail: %d, errno: %d", clientFd, recvLen, errno);
+                IPCS_WriteLog("Fd: %d recv multi msg: read fail: %d, errno: %d", fd, recvLen, errno);
                 break;
             }
         } else if (recvLen == 0) {
             continue;
         }
 
-        result = IPCS_HandleRecvData(recvBuf, recvLen, itemType, clientFd, threadArg);
+        result = IPCS_HandleRecvData(recvBuf, recvLen, itemType, fd, threadArg);
         if (result != IPCS_OK) {
-            IPCS_WriteLog("Client: %d recv message: handle recv data fail: %d, len: %d", clientFd, result, recvLen);
+            IPCS_WriteLog("Client: %d recv multi msg: handle recv data fail: %d, len: %d", fd, result, recvLen);
             break;
         }
     } while (0);
@@ -206,7 +268,7 @@ int IPCS_RecvMessage(int itemType, int clientFd, void *threadArg)
     return result;
 }
 
-int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int clientFd, void *threadArg)
+int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int fd, void *threadArg)
 {
     char *leftData = recvData;
     size_t leftDataLen = recvDataLen;
@@ -234,7 +296,7 @@ int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int cl
             break;
         }
 
-        result = IPCS_ItemRecvData(itemType, clientFd, threadArg, &msg);
+        result = IPCS_ItemHandleMsg(itemType, fd, threadArg, &msg);
         if (result != IPCS_OK) {
             break;
         }
@@ -249,15 +311,15 @@ int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int cl
     return result;
 }
 
-int IPCS_ItemRecvData(int itemType, int clientFd, void *threadArg, IPCS_Message *msg)
+int IPCS_ItemHandleMsg(int itemType, int fd, void *threadArg, IPCS_Message *msg)
 {
     int result = IPCS_OK;
 
     switch (itemType) {
         case IPCS_SERVER:
-            result = ((IPCS_ServerThreadArg *)threadArg)->serverHook(clientFd, msg);
+            result = ((IPCS_ServerThreadArg *)threadArg)->serverHook(fd, msg);
             if (result != IPCS_OK) {
-                IPCS_WriteLog("Server handle message: server hook fail: %d, clientFd: %d.", result, clientFd);
+                IPCS_WriteLog("Server: %d handle message: server hook fail: %d.", fd, result);
                 result = IPCS_SERVER_HOOK_FAIL;
             }
             break;
@@ -267,7 +329,7 @@ int IPCS_ItemRecvData(int itemType, int clientFd, void *threadArg, IPCS_Message 
         case IPCS_ASYN_CLIENT:
             result = ((IPCS_AsynClientThreadArg *)threadArg)->clientHook(msg);
             if (result != IPCS_OK) {
-                IPCS_WriteLog("Asyn client handle message: client hook fail: %d, clientFd: %d.", result, clientFd);
+                IPCS_WriteLog("Asyn client: %d handle message: client hook fail: %d.", fd, result);
                 result = IPCS_CLIENT_HOOK_FAIL;
             }
             break;
