@@ -22,10 +22,10 @@
 #include "ipcs.h"
 #include "ipcs_common.h"
 
-#define MAX_CLIENT_NUM  20
+#define MAX_CLIENT_NUM      20
 
-#define EPOLL_SIZE 20
-#define EPOLL_RUN_TIMEOUT   500
+#define EPOLL_SIZE          20
+#define EPOLL_RUN_TIMEOUT   -1
 
 typedef struct {
     char name[IPCS_SERVER_NAME_MAX_LEN];

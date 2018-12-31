@@ -54,6 +54,7 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
         IPCS_WriteLog("Create Server: %s: create thread fail: %d.", serverName, result);
         return result;
     }
+    IPCS_WriteLog("Create Server: %s: at thread %p success.", serverName, threadId);
 
     return IPCS_OK;
 }
@@ -227,10 +228,10 @@ int IPCS_ServerAcceptClient(int serverFd, int epollFd)
 
     epollEvent.events = EPOLLIN | EPOLLET;
     epollEvent.data.fd = acceptFd;
-    result = epoll_ctl(epollFd, EPOLL_CTL_ADD, serverFd, &epollEvent);
+    result = epoll_ctl(epollFd, EPOLL_CTL_ADD, acceptFd, &epollEvent);
     if (result < 0) {
         perror("epoll ctl error");
-        IPCS_WriteLog("Ctl server: %d epoll: %d fail: %d, errno: %d", serverFd, epollFd, result, errno);
+        IPCS_WriteLog("Ctl server: %d epoll: %d add %d fail: %d, errno: %d", serverFd, epollFd, acceptFd, result, errno);
         return IPCS_EPOLL_CTL_FAIL;
     }
 

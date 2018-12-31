@@ -73,8 +73,7 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
 
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sun_family = AF_UNIX;
-    snprintf(clientAddr.sun_path, sizeof(clientAddr.sun_path), "%s", serverName);
-    unlink(serverAddr.sun_path);
+    snprintf(serverAddr.sun_path, sizeof(serverAddr.sun_path), "%s", serverName);
 
     result = connect(connectFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
     if (result < 0) {
@@ -140,6 +139,8 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
         IPCS_WriteLog("Create asyn client: %s, server: %s, socket: %d: create thread fail: %d.", clientName, serverName, *fd, result);
         return result;
     }
+
+    IPCS_WriteLog("Create asyn client: %s, server: %s, socket: %d: at thread %p success.", clientName, serverName, *fd, threadId);
 
     return result;
 }
