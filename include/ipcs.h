@@ -19,7 +19,7 @@
 #ifndef __IPCS_H__
 #define __IPCS_H__
 
-/* */
+/* 发送或接收消息的最大长度（字节数） */
 #define IPCS_MESSAGE_MAX_LEN    (32*1024)
 
 typedef struct {
