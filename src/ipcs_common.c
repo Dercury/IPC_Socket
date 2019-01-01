@@ -602,4 +602,18 @@ int IPCS_DelItemsInfo(IPCS_ItemType type, const char *name, int fd)
 }
 
 /******************************************************************************/
+int IPCS_CheckItemName(const char *name)
+{
+    if (name == NULL) {
+        return IPCS_PARAM_NULL;
+    }
+
+    if (strlen(name) >= IPCS_ITEM_NAME_MAX_LEN) {
+        return IPCS_PARAM_LEN;
+    }
+
+    return IPCS_OK;
+}
+
+/******************************************************************************/
 

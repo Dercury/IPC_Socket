@@ -73,5 +73,8 @@ int IPCS_IsItemExist(IPCS_ItemType type, const char *name, int fd);
 int IPCS_DelItemsInfo(IPCS_ItemType type, const char *name, int fd);
 
 /******************************************************************************/
+int IPCS_CheckItemName(const char *name);
+
+/******************************************************************************/
 #endif /* __IPCS_COMMON_H__ */
 

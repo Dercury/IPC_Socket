@@ -68,7 +68,11 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 
 int IPCS_CheckCreatingServer(const char *serverName, ServerCallback serverHook)
 {
-    return IPCS_OK;
+    if (serverHook == NULL) {
+        return IPCS_PARAM_NULL;
+    }
+
+    return IPCS_CheckItemName(serverName);
 }
 
 void *IPCS_ServerRun(void *arg)
@@ -268,6 +272,11 @@ int IPCS_DestroyServer(const char *serverName)
 {
     int result = 0;
     IPCS_ItemInfo itemInfo;
+    
+    result = IPCS_CheckItemName(serverName);
+    if (result != IPCS_OK) {
+        return result;
+    }
 
     (void)memset(&itemInfo, 0, sizeof(IPCS_ItemInfo));
     result = IPCS_FindItemsInfo(IPCS_SERVER, serverName, 0, &itemInfo);
