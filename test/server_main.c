@@ -44,6 +44,12 @@ int SyncServerHook(int fd, IPCS_Message *msg)
             TEST_PRINT("Server send msg to user sync client: %d fail: %d", fd, result);
             return result;
         }
+    } else if (msg->msgType == TIMER_SYNC_MSG) {
+        result = IPCS_ServerSendMessage(fd, msg);
+        if (result != IPCS_OK) {
+            TEST_PRINT("Server send msg to timer sync client: %d fail: %d", fd, result);
+            return result;
+        }
     }
 
     return result;
@@ -64,11 +70,11 @@ int main(int argc, char **argv)
         return result;
     }
 
-//    result = IPCS_CreateServer(ASYC_SERVER_NAME, AsynServerHook);
-//    if (result != IPCS_OK) {
-//        TEST_PRINT("create asyn server fail: %d", result);
-//        return result;
-//    }
+    result = IPCS_CreateServer(ASYC_SERVER_NAME, AsynServerHook);
+    if (result != IPCS_OK) {
+        TEST_PRINT("create asyn server fail: %d", result);
+        return result;
+    }
 
     return pause();
 }

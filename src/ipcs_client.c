@@ -35,10 +35,19 @@
 int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *fd)
 {
     int result = IPCS_OK;
+    struct timeval timeout = {3, 0};    /* 3s */
     
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
     if (result != IPCS_OK) {
         IPCS_WriteLog("Create sync client: %s, server: %s: create socket fail: %d.", clientName, serverName, result);
+        return result;
+    }
+
+    result = setsockopt(*fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
+    if (result != 0) {
+        close(*fd);
+        perror("sync client setsockopt error");
+        IPCS_WriteLog("Create sync client: %s, server: %s: set socket %d opt fail: %d, errno: %d.", clientName, serverName, *fd, result, errno);
         return result;
     }
 
@@ -176,6 +185,8 @@ int IPCS_DestroyClient(int fd)
     if (result != 0) {
         perror("close error");
         IPCS_WriteLog("Destroy client: %d close fail, errno: %d", fd, errno);
+    } else {
+        IPCS_WriteLog("Destroy client: %d success", fd);
     }
 
     return result;
