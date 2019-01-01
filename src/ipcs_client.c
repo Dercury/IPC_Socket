@@ -30,7 +30,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-
+/******************************************************************************/
 /* 创建同步客户端 */
 int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *fd)
 {
@@ -45,11 +45,19 @@ int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *f
 
     result = setsockopt(*fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
     if (result != 0) {
-        close(*fd);
+        (void)close(*fd);
         perror("sync client setsockopt error");
         IPCS_WriteLog("Create sync client: %s, server: %s: set socket %d opt fail: %d, errno: %d.", clientName, serverName, *fd, result, errno);
         return result;
     }
+
+    result = IPCS_AddSyncClientInfo(clientName, serverName, *fd);
+    if (result != IPCS_OK) {
+        (void)close(*fd);
+        return result;
+    }
+
+    IPCS_WriteLog("Create sync client: %s, server: %s, socket: %d success.", clientName, serverName, *fd);
 
     return result;
 }
@@ -74,7 +82,7 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
     unlink(clientAddr.sun_path);
     result = bind(connectFd, (struct sockaddr *)&clientAddr, sizeof(clientAddr));
     if (result < 0) {
-        close(connectFd);
+        (void)close(connectFd);
         perror("client bind error");
         IPCS_WriteLog("Bind client: %s server: %s socket: %d fail: %d, errno: %d", clientName, serverName, connectFd, result, errno);
         return IPCS_BIND_FAIL;
@@ -86,7 +94,7 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
 
     result = connect(connectFd, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
     if (result < 0) {
-        close(connectFd);
+        (void)close(connectFd);
         perror("client connect error");
         IPCS_WriteLog("Connect client: %s server: %s socket: %d fail: %d, errno: %d", clientName, serverName, connectFd, result, errno);
         return IPCS_CONNECT_FAIL;
@@ -95,9 +103,10 @@ int IPCS_CreateClientSocket(const char *clientName, const char *serverName, int 
     *clientFd = connectFd;
     IPCS_WriteLog("IPC socket client: %s server: %s socket: %d created.", clientName, serverName, *clientFd);
 
-    return 0;
+    return IPCS_OK;
 }
 
+/******************************************************************************/
 /* 同步调用 */
 int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
 {
@@ -118,6 +127,7 @@ int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
     return result;
 }
 
+/******************************************************************************/
 /* 创建异步客户端 */
 int IPCS_CreateAsynClient(const char *clientName, const char *serverName, ClientCallback clientHook, int *fd)
 {
@@ -133,7 +143,7 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
 
     threadArg = (IPCS_AsynClientThreadArg *)malloc(sizeof(IPCS_AsynClientThreadArg));
     if (threadArg == NULL) {
-        close(*fd);
+        (void)close(*fd);
         IPCS_WriteLog("Create asyn client: %s, server: %s, socket: %d: malloc fail.", clientName, serverName, *fd);
         return IPCS_MALLOC_FAIL;
     }
@@ -143,9 +153,16 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
     threadArg->clientHook = clientHook;
     result = IPCS_CreateThread(IPCS_AsynClientRun, threadArg, &threadId);
     if (result != IPCS_OK) {
-        close(*fd);
+        (void)close(*fd);
         free(threadArg);
         IPCS_WriteLog("Create asyn client: %s, server: %s, socket: %d: create thread fail: %d.", clientName, serverName, *fd, result);
+        return result;
+    }
+
+    result = IPCS_AddAsynClientInfo(clientName, serverName, *fd, threadId, clientHook);
+    if (result != IPCS_OK) {
+        (void)close(*fd);
+        free(threadArg);
         return result;
     }
 
@@ -171,16 +188,19 @@ void *IPCS_AsynClientRun(void *arg)
     return NULL;
 }
 
+/******************************************************************************/
 /* 异步调用 */
 int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg)
 {
     return IPCS_SendMessage(fd, sendMsg);
 }
 
+/******************************************************************************/
 /* 销毁客户端 */
 int IPCS_DestroyClient(int fd)
 {
     int result = 0;
+
     result = close(fd);
     if (result != 0) {
         perror("close error");
@@ -191,4 +211,49 @@ int IPCS_DestroyClient(int fd)
 
     return result;
 }
+
+/******************************************************************************/
+int IPCS_AddSyncClientInfo(const char *clientName, const char *serverName, int fd)
+{
+    IPCS_ItemInfo info;
+    int result = IPCS_OK;
+
+    (void)memset(&info, 0, sizeof(IPCS_ItemInfo));
+
+    info.type = IPCS_SYNC_CLIENT;
+    (void)strcpy(info.name, clientName);
+    (void)strcpy(info.peerName, serverName);
+    info.fd = fd;
+
+    result = IPCS_AddItemsInfo(&info);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Add sync client: %s, server: %s: socket: %d info fail: %d.", clientName, serverName, fd, result);
+    }
+
+    return result;
+}
+
+int IPCS_AddAsynClientInfo(const char *clientName, const char *serverName, int fd, pthread_t pid, ClientCallback hook)
+{
+    IPCS_ItemInfo info;
+    int result = IPCS_OK;
+
+    (void)memset(&info, 0, sizeof(IPCS_ItemInfo));
+
+    info.type = IPCS_ASYN_CLIENT;
+    (void)strcpy(info.name, clientName);
+    (void)strcpy(info.peerName, serverName);
+    info.fd = fd;
+    info.pid = pid;
+    info.hook = hook;
+
+    result = IPCS_AddItemsInfo(&info);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Add asyn client: %s, server: %s: socket: %d info fail: %d.", clientName, serverName, fd, result);
+    }
+
+    return result;
+}
+
+/******************************************************************************/
 

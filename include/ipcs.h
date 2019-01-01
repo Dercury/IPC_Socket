@@ -19,6 +19,7 @@
 #ifndef __IPCS_H__
 #define __IPCS_H__
 
+/******************************************************************************/
 /* 发送或接收消息的最大长度（字节数） */
 #define IPCS_MESSAGE_MAX_LEN    (32*1024)
 
@@ -28,6 +29,7 @@ typedef struct {
     void *msgValue;
 } IPCS_Message;
 
+/******************************************************************************/
 typedef enum {
     IPCS_OK = 0,
 
@@ -46,6 +48,7 @@ typedef enum {
 
     IPCS_PTHREAD_ATTR_SET_FAIL,
     IPCS_PTHREAD_CREATE_FAIL,
+    IPCS_PTHREAD_MUTEX_FAIL,
 
     IPCS_READ_FAIL,
     IPCS_WRITE_FAIL,
@@ -59,15 +62,23 @@ typedef enum {
 
     IPCS_UNREACHABLE,
 
+    IPCS_ITEM_INFO_FULL,
+    IPCS_NOT_FOUND,
+
+    IPCS_PARAM_NULL,
+    IPCS_PARAM_LEN,
+
     IPCS_ERROR_BUTT
 } IPCS_ReturnValue;
 
+/******************************************************************************/
 /* 服务端响应的回调函数 */
 typedef int (*ServerCallback)(int fd, IPCS_Message *msg);
 
 /* 客户端响应的回调函数，仅用于异步调用时 */
 typedef int (*ClientCallback)(IPCS_Message *msg);
 
+/******************************************************************************/
 /* 创建服务端，参数都是必须的入参 */
 int IPCS_CreateServer(const char *serverName, ServerCallback serverHook);
 
@@ -77,6 +88,7 @@ int IPCS_DestroyServer(const char *serverName);
 /* 服务端响应消息，服务端响应请求的回调函数中使用 */
 int IPCS_ServerSendMessage(int fd, IPCS_Message *msg);
 
+/******************************************************************************/
 /* 创建同步客户端 */
 int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *fd);
 
@@ -86,12 +98,14 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
 /* 销毁客户端 */
 int IPCS_DestroyClient(int fd);
 
+/******************************************************************************/
 /* 同步调用 */
 int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg);
 
 /* 异步调用 */
 int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg);
 
+/******************************************************************************/
 
 #endif /* __IPCS_H__ */
 

@@ -93,38 +93,35 @@ int UserSyncClient(void)
 	return result;
 }
 
-int TimerSyncClient(void)
+int TimerSyncClient(int *timerSyncClientFd)
 {
     int result = 0;
-    int *timerSyncClientFd = NULL;
+    int *fd = NULL;
     pthread_t threadId;
 
-    timerSyncClientFd = malloc(sizeof(int));
-    if (timerSyncClientFd == NULL) {
+    fd = malloc(sizeof(int));
+    if (fd == NULL) {
 		TEST_PRINT("timer sync client malloc fail.");
         return -1;
     }
 
     do {
-        *timerSyncClientFd = 0;
-        result = IPCS_CreateSyncClient(TIMER_SYNC_CLIENT_NAME, SYCN_SERVER_NAME, timerSyncClientFd);
+        *fd = 0;
+        result = IPCS_CreateSyncClient(TIMER_SYNC_CLIENT_NAME, SYCN_SERVER_NAME, fd);
         if (result != IPCS_OK) {
-            free(timerSyncClientFd);
+            free(fd);
             TEST_PRINT("create timer sync client fail: %d", result);
             break;
         }
     
-        result = IPCS_CreateThread(TimerSyncClientRun, timerSyncClientFd, &threadId);
+        result = IPCS_CreateThread(TimerSyncClientRun, fd, &threadId);
         if (result != IPCS_OK) {
-            free(timerSyncClientFd);
-            TEST_PRINT("create timer sync client %d thread fail: %d", *timerSyncClientFd, result);
+            free(fd);
+            TEST_PRINT("create timer sync client %d thread fail: %d", *fd, result);
+            break;
         }
-    
-        //result = IPCS_DestroyClient(*timerSyncClientFd);
-        //if (result != IPCS_OK) {
-        //    TEST_PRINT("destroy timer sync client %d fail: %d", *timerSyncClientFd, result);
-        //    break;
-        //}
+
+        *timerSyncClientFd = *fd;
     } while (0);
 
     return 0;
@@ -194,14 +191,14 @@ int TimerAsynClient(void)
 int main(int argc, char **argv)
 {
     int result = 0;
+    int timerSyncClientFd = 0;
 
-    result = TimerSyncClient();
+    result = TimerSyncClient(&timerSyncClientFd);
     if (result != IPCS_OK) {
         TEST_PRINT("timer sync client fail: %d", result);
         return result;
     }
     TEST_PRINT("timer sync client running ...");
-    fflush(NULL);
 
     result = UserSyncClient();
     if (result != IPCS_OK) {
@@ -209,7 +206,17 @@ int main(int argc, char **argv)
         return result;
     }
 
-    return pause();
+    (void)fflush(NULL);
+
+    pause();
+
+    result = IPCS_DestroyClient(timerSyncClientFd);
+    if (result != IPCS_OK) {
+        TEST_PRINT("destroy timer sync client %d fail: %d", timerSyncClientFd, result);
+    }
+    (void)fflush(NULL);
+
+    return result;
 }
 
 
