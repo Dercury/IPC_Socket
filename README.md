@@ -42,3 +42,9 @@ int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg);
 int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg);
 
 ```
+
+# TODO
+1.销毁客户端、服务端
+2.入参检查
+3.异步调用测试
+
