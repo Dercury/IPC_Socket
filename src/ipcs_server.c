@@ -266,7 +266,38 @@ int IPCS_ServerHandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg)
 /* 销毁服务端 */
 int IPCS_DestroyServer(const char *serverName)
 {
-    return IPCS_OK;
+    int result = 0;
+    IPCS_ItemInfo itemInfo;
+
+    (void)memset(&itemInfo, 0, sizeof(IPCS_ItemInfo));
+    result = IPCS_FindItemsInfo(IPCS_SERVER, serverName, 0, &itemInfo);
+    if (result != IPCS_OK) {
+        return IPCS_OK;
+    }
+
+    result = pthread_cancel(itemInfo.pid);
+    if (result != 0) {
+        perror("pthread_cancel error");
+        IPCS_WriteLog("Destroy server: %s pthread_cancel: %p fail, errno: %d", serverName, itemInfo.pid, errno);
+        return result;
+    }
+
+    result = close(itemInfo.epollFd);
+    if (result != 0) {
+        perror("close error");
+        IPCS_WriteLog("Destroy server: %s epollFd: %d close fail, errno: %d", serverName, itemInfo.epollFd, errno);
+        return result;
+    } 
+    
+    result = close(itemInfo.fd);
+    if (result != 0) {
+        perror("close error");
+        IPCS_WriteLog("Destroy server: %s sockfd: %d close fail, errno: %d", serverName, itemInfo.fd, errno);
+    } else {
+        IPCS_WriteLog("Destroy server: %s success", serverName);
+    }
+
+    return result;
 }
 
 /******************************************************************************/

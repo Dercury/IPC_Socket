@@ -200,6 +200,22 @@ int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg)
 int IPCS_DestroyClient(int fd)
 {
     int result = 0;
+    IPCS_ItemInfo itemInfo;
+
+    (void)memset(&itemInfo, 0, sizeof(IPCS_ItemInfo));
+    result = IPCS_FindItemsInfo(IPCS_SYNC_CLIENT, NULL, fd, &itemInfo);
+    if (result != IPCS_OK) {
+        return IPCS_OK;
+    }
+
+    if (itemInfo.type == IPCS_ASYN_CLIENT) {
+        result = pthread_cancel(itemInfo.pid);
+        if (result != 0) {
+            perror("pthread_cancel error");
+            IPCS_WriteLog("Destroy asyn client: %d pthread_cancel: %p fail, errno: %d", fd, itemInfo.pid, errno);
+            return result;
+        }
+    }
 
     result = close(fd);
     if (result != 0) {

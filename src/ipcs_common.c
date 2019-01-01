@@ -445,14 +445,7 @@ int IPCS_AddItemAction(IPCS_ItemInfo *itemInfo)
 
     for (loop = 0; loop < IPCS_ITEM_MAX_NUM; loop++) {
         if (strlen(g_IpcsItems[loop].name) == 0) {
-            g_IpcsItems[loop].type = itemInfo->type;
-            (void)strcpy(g_IpcsItems[loop].name, itemInfo->name);
-            (void)strcpy(g_IpcsItems[loop].peerName, itemInfo->peerName);
-            g_IpcsItems[loop].fd = itemInfo->fd;
-            g_IpcsItems[loop].epollFd = itemInfo->epollFd;
-            g_IpcsItems[loop].pid = itemInfo->pid;
-            g_IpcsItems[loop].hook = itemInfo->hook;
-
+            (void)memcpy(g_IpcsItems + loop, itemInfo, sizeof(IPCS_ItemInfo));
             g_IpcsItemsNum++;
             result = IPCS_OK;
             break;
@@ -506,6 +499,34 @@ int IPCS_AddItemsInfo(IPCS_ItemInfo *itemInfo)
     return result;
 }
 
+int IPCS_FindItemAction(IPCS_ItemType type, const char *name, int fd, int *index)
+{
+    int loop = 0;
+    int result = IPCS_NOT_FOUND;
+
+    for (loop = 0; loop < IPCS_ITEM_MAX_NUM; loop++) {
+        if (g_IpcsItems[loop].type != type) {
+            continue;
+        }
+
+        if (type == IPCS_SERVER) {
+            if (strcmp(g_IpcsItems[loop].name, name) != 0) {
+                continue;
+            }
+        } else {
+            if (g_IpcsItems[loop].fd != fd) {
+                continue;
+            }
+        }
+
+        *index = loop;
+        result = IPCS_OK;
+        break;
+    }
+
+    return result;
+}
+
 int IPCS_DelItemAction(int index)
 {
     (void)memset(g_IpcsItems + index, 0, sizeof(IPCS_ItemInfo));
@@ -518,7 +539,7 @@ int IPCS_DelItemAction(int index)
     return IPCS_OK;
 }
 
-int IPCS_FindDelItemsInfo(IPCS_ItemType type, const char *name, const char *peerName, int isDel)
+int IPCS_FindDelItemsInfo(IPCS_ItemType type, const char *name, int fd, int isDel, IPCS_ItemInfo *itemInfo)
 {
     int mutexResult = 0;
     int result = IPCS_NOT_FOUND;
@@ -533,28 +554,19 @@ int IPCS_FindDelItemsInfo(IPCS_ItemType type, const char *name, const char *peer
 
     do {
         if ((g_IpcsItems == NULL) || (g_IpcsItemsNum == 0)) {
-            result = IPCS_OK;
+            result = (isDel ? IPCS_OK : IPCS_NOT_FOUND);
             break;
         }
     
-        for (loop = 0; loop < IPCS_ITEM_MAX_NUM; loop++) {
-            if ((g_IpcsItems[loop].type != type) ||
-                (strcmp(g_IpcsItems[loop].name, name) != 0)) {
-                continue;
-            }
-
-            if ((type != IPCS_SERVER) && 
-                (strcmp(g_IpcsItems[loop].peerName, peerName) != 0)) {
-                continue;
-            }
-
-            result = IPCS_OK;
-
-            if (isDel) {
-                result = IPCS_DelItemAction(loop);
-            }
-
+        result = IPCS_FindItemAction(type, name, fd, &loop);
+        if (result != IPCS_OK) {
             break;
+        }
+
+        if (isDel) {
+            result = IPCS_DelItemAction(loop);
+        } else {
+            (void)memcpy(itemInfo, g_IpcsItems + loop, sizeof(IPCS_ItemInfo));
         }
     } while (0);
 
@@ -568,14 +580,25 @@ int IPCS_FindDelItemsInfo(IPCS_ItemType type, const char *name, const char *peer
     return result;
 }
 
-int IPCS_FindItemsInfo(IPCS_ItemType type, const char *name, const char *peerName)
+int IPCS_FindItemsInfo(IPCS_ItemType type, const char *name, int fd, IPCS_ItemInfo *itemInfo)
 {
-    return IPCS_FindDelItemsInfo(type, name, peerName, 0);
+    return IPCS_FindDelItemsInfo(type, name, fd, 0, itemInfo);
 }
 
-int IPCS_DelItemsInfo(IPCS_ItemType type, const char *name, const char *peerName)
+int IPCS_IsItemExist(IPCS_ItemType type, const char *name, int fd)
 {
-    return IPCS_FindDelItemsInfo(type, name, peerName, 1);
+    int result = 0;
+    IPCS_ItemInfo itemInfo;
+
+    (void)memset(&itemInfo, 0, sizeof(IPCS_ItemInfo));
+    result = IPCS_FindItemsInfo(type, name, fd, &itemInfo);
+
+    return !result;
+}
+
+int IPCS_DelItemsInfo(IPCS_ItemType type, const char *name, int fd)
+{
+    return IPCS_FindDelItemsInfo(type, name, fd, 1, NULL);
 }
 
 /******************************************************************************/

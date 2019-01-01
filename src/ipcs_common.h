@@ -68,8 +68,9 @@ typedef struct {
 } IPCS_ItemInfo;
 
 int IPCS_AddItemsInfo(IPCS_ItemInfo *itemInfo);
-int IPCS_FindItemsInfo(IPCS_ItemType type, const char *name, const char *peerName);
-int IPCS_DelItemsInfo(IPCS_ItemType type, const char *name, const char *peerName);
+int IPCS_FindItemsInfo(IPCS_ItemType type, const char *name, int fd, IPCS_ItemInfo *itemInfo);
+int IPCS_IsItemExist(IPCS_ItemType type, const char *name, int fd);
+int IPCS_DelItemsInfo(IPCS_ItemType type, const char *name, int fd);
 
 /******************************************************************************/
 #endif /* __IPCS_COMMON_H__ */
