@@ -318,6 +318,7 @@ int IPCS_HandleRecvData(void *recvData, size_t recvDataLen, int itemType, int fd
 int IPCS_ItemHandleMsg(int itemType, int fd, void *threadArg, IPCS_Message *msg)
 {
     int result = IPCS_OK;
+    IPCS_AsynClientThreadArg *asynClientArg = NULL;
 
     switch (itemType) {
         case IPCS_SERVER:
@@ -331,10 +332,14 @@ int IPCS_ItemHandleMsg(int itemType, int fd, void *threadArg, IPCS_Message *msg)
             result = IPCS_UNREACHABLE;
             break;
         case IPCS_ASYN_CLIENT:
-            result = ((IPCS_AsynClientThreadArg *)threadArg)->clientHook(msg);
-            if (result != IPCS_OK) {
-                IPCS_WriteLog("Asyn client: %d handle message: client hook fail: %d.", fd, result);
-                result = IPCS_CLIENT_HOOK_FAIL;
+            asynClientArg = (IPCS_AsynClientThreadArg *)threadArg;
+            /* NULL asyn client hook is allowed. */
+            if (asynClientArg->clientHook != NULL) {
+                result = asynClientArg->clientHook(msg);
+                if (result != IPCS_OK) {
+                    IPCS_WriteLog("Asyn client: %d handle message: client hook fail: %d.", fd, result);
+                    result = IPCS_CLIENT_HOOK_FAIL;
+                }
             }
             break;
     }
@@ -610,6 +615,25 @@ int IPCS_CheckItemName(const char *name)
 
     if (strlen(name) >= IPCS_ITEM_NAME_MAX_LEN) {
         return IPCS_PARAM_LEN;
+    }
+
+    return IPCS_OK;
+}
+
+int IPCS_CheckMessage(IPCS_Message *msg)
+{
+    size_t msgHeaderLen = offsetof(IPCS_Message, msgValue);
+
+    if (msg == NULL) {
+        return IPCS_PARAM_NULL;
+    }
+
+    if (msg->msgLen + msgHeaderLen > IPCS_MESSAGE_MAX_LEN) {
+        return IPCS_PARAM_LEN;
+    }
+
+    if (msg->msgValue == NULL) {
+        return IPCS_PARAM_NULL;
     }
 
     return IPCS_OK;

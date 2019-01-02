@@ -39,7 +39,7 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 
     result = IPCS_CheckCreatingServer(serverName, serverHook);
     if (result != IPCS_OK) {
-        IPCS_WriteLog("Create Server: %s: check fail: %d.", serverName, result);
+        IPCS_WriteLog("Check create server with bad params. Error: %d", result);
         return result;
     }
 
@@ -69,6 +69,7 @@ int IPCS_CreateServer(const char *serverName, ServerCallback serverHook)
 int IPCS_CheckCreatingServer(const char *serverName, ServerCallback serverHook)
 {
     if (serverHook == NULL) {
+        IPCS_WriteLog("Check creating server with null hook.");
         return IPCS_PARAM_NULL;
     }
 
@@ -214,6 +215,8 @@ int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg
             } else if ((events[i].events & EPOLLIN) || 
                 (events[i].events & EPOLLPRI) || 
                 (events[i].events & EPOLLOUT)) {
+                IPCS_WriteLog("Server: %d epoll: %d handling events: %p from fd: %d ...", 
+                               serverFd, epollFd, events[i].events, events[i].data.fd);
                 /* 有数据待接收或待发送 */
                 result = IPCS_ServerHandleMessage(events[i].data.fd, threadArg);
             } else {
@@ -223,8 +226,8 @@ int IPCS_HandleServerEpollEvents(int serverFd, int epollFd, IPCS_ServerThreadArg
             }
 
             if (result != IPCS_OK) {
-                IPCS_WriteLog("Handle server: %d epoll: %d wait: %d bad events: %p, errno: %d",
-                        serverFd, epollFd, events[i].data.fd, events[i].events, errno);
+                IPCS_WriteLog("Server: %d epoll: %d got bad events: %p from fd: %d, errno: %d",
+                        serverFd, epollFd, events[i].events, events[i].data.fd, errno);
                 return result;
             }
         }
@@ -257,6 +260,8 @@ int IPCS_ServerAcceptClient(int serverFd, int epollFd)
         IPCS_WriteLog("Ctl server: %d epoll: %d add %d fail: %d, errno: %d", serverFd, epollFd, acceptFd, result, errno);
         return IPCS_EPOLL_CTL_FAIL;
     }
+
+    IPCS_WriteLog("Server: %d epoll: %d accept client %d success.", serverFd, epollFd, acceptFd);
 
     return IPCS_OK;
 }
@@ -313,7 +318,37 @@ int IPCS_DestroyServer(const char *serverName)
 /* 服务端响应消息，服务端响应请求的回调函数中使用 */
 int IPCS_ServerSendMessage(int fd, IPCS_Message *msg)
 {
-    return IPCS_SendMessage(fd, msg);
+    int result = IPCS_OK;
+
+    result = IPCS_CheckSeverSendMsg(fd, msg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Server send mgs to client: %d with bad params: %d", fd, result);
+        return result;
+    }
+
+    result = IPCS_SendMessage(fd, msg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Server send msg to client: %d fail: %d", fd, result);
+        return result;
+    }
+
+    return result;
+}
+
+int IPCS_CheckSeverSendMsg(int fd, IPCS_Message *msg)
+{
+    int result = IPCS_OK;
+
+    /* The input fd is not client fd, it's acceptFd. 
+     * So it can't be checked by IPCS_IsItemExist. */
+
+    result = IPCS_CheckMessage(msg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Server send to client: %d with bad msg: %d", fd, result);
+        return result;
+    }
+
+    return IPCS_OK;
 }
 
 /******************************************************************************/

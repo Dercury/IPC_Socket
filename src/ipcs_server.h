@@ -52,6 +52,8 @@ int IPCS_ServerHandleMessage(int clientFd, IPCS_ServerThreadArg *threadArg);
 /******************************************************************************/
 int IPCS_AddServerInfo(const char *serverName, int fd, int epollFd, pthread_t pid, ServerCallback hook);
 
+int IPCS_CheckSeverSendMsg(int fd, IPCS_Message *msg);
+
 /******************************************************************************/
 
 #endif /* __IPCS_SERVER_H__ */

@@ -37,6 +37,12 @@ int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *f
     int result = IPCS_OK;
     struct timeval timeout = {3, 0};    /* 3s */
     
+    result = IPCS_CheckCreatingClient(clientName, serverName, fd);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Check creating sync client with bad params. Error: %d", result);
+        return result;
+    }
+    
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
     if (result != IPCS_OK) {
         IPCS_WriteLog("Create sync client: %s, server: %s: create socket fail: %d.", clientName, serverName, result);
@@ -58,6 +64,30 @@ int IPCS_CreateSyncClient(const char *clientName, const char *serverName, int *f
     }
 
     IPCS_WriteLog("Create sync client: %s, server: %s, socket: %d success.", clientName, serverName, *fd);
+
+    return result;
+}
+
+int IPCS_CheckCreatingClient(const char *clientName, const char *serverName, int *fd)
+{
+    int result = IPCS_OK;
+
+    if (fd == NULL) {
+        IPCS_WriteLog("Check creating client with null fd.");
+        return IPCS_PARAM_NULL;
+    }
+
+    result = IPCS_CheckItemName(clientName);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Check creating client with bad clientName. Error: %d", result);
+        return result;
+    }
+
+    result = IPCS_CheckItemName(serverName);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Check creating client with bad serverName. Error: %d", result);
+        return result;
+    }
 
     return result;
 }
@@ -112,6 +142,12 @@ int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
 {
     int result = 0;
 
+    result = IPCS_CheckClientSyncCall(fd, sendMsg, recvMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d sync call with bad params: %d", fd, result);
+        return result;
+    }
+
     result = IPCS_SendMessage(fd, sendMsg);
     if (result != IPCS_OK) {
         IPCS_WriteLog("Client: %d sync call: send msg fail: %d", fd, result);
@@ -127,6 +163,31 @@ int IPCS_ClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
     return result;
 }
 
+int IPCS_CheckClientSyncCall(int fd, IPCS_Message *sendMsg, IPCS_Message *recvMsg)
+{
+    int result = IPCS_OK;
+
+    result = IPCS_IsItemExist(IPCS_SYNC_CLIENT, NULL, fd);
+    if (result == 0) {
+        IPCS_WriteLog("Client sync call with not exist fd: %d", fd);
+        return IPCS_NOT_FOUND;
+    }
+
+    result = IPCS_CheckMessage(sendMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d sync call with bad send msg: %d", fd, sendMsg);
+        return result;
+    }
+
+    result = IPCS_CheckMessage(recvMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d sync call with bad recv msg: %d", fd, recvMsg);
+        return result;
+    }
+
+    return result;
+}
+
 /******************************************************************************/
 /* 创建异步客户端 */
 int IPCS_CreateAsynClient(const char *clientName, const char *serverName, ClientCallback clientHook, int *fd)
@@ -134,6 +195,13 @@ int IPCS_CreateAsynClient(const char *clientName, const char *serverName, Client
     pthread_t threadId;
     IPCS_AsynClientThreadArg *threadArg = NULL;
     int result = 0;
+    
+    /* NULL asyn client hook is allowed. */
+    result = IPCS_CheckCreatingClient(clientName, serverName, fd);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Check creating asyn client with bad params. Error: %d", result);
+        return result;
+    }
     
     result = IPCS_CreateClientSocket(clientName, serverName, fd);
     if (result != IPCS_OK) {
@@ -192,7 +260,40 @@ void *IPCS_AsynClientRun(void *arg)
 /* 异步调用 */
 int IPCS_ClientAsynCall(int fd, IPCS_Message *sendMsg)
 {
-    return IPCS_SendMessage(fd, sendMsg);
+    int result = IPCS_OK;
+
+    result = IPCS_CheckClientAsynCall(fd, sendMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d asyn call with bad params: %d", fd, result);
+        return result;
+    }
+
+    result = IPCS_SendMessage(fd, sendMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d asyn call: send msg fail: %d", fd, result);
+        return result;
+    }
+
+    return result;
+}
+
+int IPCS_CheckClientAsynCall(int fd, IPCS_Message *sendMsg)
+{
+    int result = IPCS_OK;
+
+    result = IPCS_IsItemExist(IPCS_ASYN_CLIENT, NULL, fd);
+    if (result == 0) {
+        IPCS_WriteLog("Client asyn call with not exist fd: %d", fd);
+        return IPCS_NOT_FOUND;
+    }
+
+    result = IPCS_CheckMessage(sendMsg);
+    if (result != IPCS_OK) {
+        IPCS_WriteLog("Client: %d asyn call with bad send msg: %d", fd, sendMsg);
+        return result;
+    }
+
+    return IPCS_OK;
 }
 
 /******************************************************************************/
@@ -205,7 +306,11 @@ int IPCS_DestroyClient(int fd)
     (void)memset(&itemInfo, 0, sizeof(IPCS_ItemInfo));
     result = IPCS_FindItemsInfo(IPCS_SYNC_CLIENT, NULL, fd, &itemInfo);
     if (result != IPCS_OK) {
-        return IPCS_OK;
+        result = IPCS_FindItemsInfo(IPCS_ASYN_CLIENT, NULL, fd, &itemInfo);
+        if (result != IPCS_OK) {
+            IPCS_WriteLog("Destroy client: %d not exist.", fd);
+            return IPCS_OK;
+        }
     }
 
     if (itemInfo.type == IPCS_ASYN_CLIENT) {
